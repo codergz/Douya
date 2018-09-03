@@ -19,17 +19,17 @@ import okhttp3.Response;
  * Created by gz494 on 2018/3/25.
  */
 
-public class DownloadUtil {
-    private static DownloadUtil mDownloadUtil;
+public class DownloadUtilWithOkHttp {
+    private static DownloadUtilWithOkHttp mDownloadUtilWithOkHttp;
     private OkHttpClient mOkHttpClient;
 
-    public static DownloadUtil getDownloadUtil(){
-        if(mDownloadUtil == null){
-            mDownloadUtil = new DownloadUtil();
+    public static DownloadUtilWithOkHttp getDownloadUtil(){
+        if(mDownloadUtilWithOkHttp == null){
+            mDownloadUtilWithOkHttp = new DownloadUtilWithOkHttp();
         }
-        return mDownloadUtil;
+        return mDownloadUtilWithOkHttp;
     }
-    private DownloadUtil() {
+    private DownloadUtilWithOkHttp() {
         mOkHttpClient = new OkHttpClient();
     }
 
@@ -46,11 +46,12 @@ public class DownloadUtil {
         mOkHttpClient.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
+
                 onDownloadListener.onDownloadFailed();
             }
 
             @Override
-            public void onResponse(Call call, Response response) throws IOException {
+            public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
                 InputStream is = null;
                 byte[] buffer = new byte[2048];
                 int len = 0;
