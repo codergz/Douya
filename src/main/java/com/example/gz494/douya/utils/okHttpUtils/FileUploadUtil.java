@@ -1,5 +1,9 @@
 package com.example.gz494.douya.utils.okHttpUtils;
 
+import android.util.Log;
+
+import com.example.gz494.douya.listener.OnUploadResultListener;
+
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,17 +14,29 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Map;
 
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import okio.BufferedSink;
 import retrofit2.http.Url;
+
 
 /**
  * Created by gz494 on 2018/9/2.
  */
 
 public class FileUploadUtil {
+    private static final String TAG = "FileUploadUtil";
     private static Object lock = new Object();
     private static volatile FileUploadUtil mFileUploadUtil = null;
     private final String BOUNDARY = "----WebKitFormBoundary4lg4euy1kMpXtPie";
-
+    private final int DOWNLOAD_WITH_HTTPURLCONNECTION = 0;
+    private final int DOWNLOAD_WITH_OKHTTP = 1;
     private final String END = "\r\n";
     private final String LAST = "--";
 
@@ -39,29 +55,53 @@ public class FileUploadUtil {
         return mFileUploadUtil;
     }
 
-    /**
-     *
-     ------WebKitFormBoundary90QkFBcF68eTRSiS       1
-     Content-Disposition: form-data; name="data"     2
-                                                    3
-     fafa                                           4
-     ------WebKitFormBoundary90QkFBcF68eTRSiS       5
-     Content-Disposition: form-data; name="username"  6
-                                                    7
-     fafa                                           8
-     ------WebKitFormBoundary90QkFBcF68eTRSiS       9
-     Content-Disposition: form-data; name="file"; filename=""       10
-     Content-Type: application/octet-stream             11
-                                                        12
-                                                        13
-     ------WebKitFormBoundary90QkFBcF68eTRSiS--          14
-     * @param params 普通表单数据
-     * @param fileFormName 表单文件名称
-     * @param newFileName  文件名称，如果不设置，默认使用fileFormName
-     * @param url  请求上传的URL地址
-     * @param uploadFile 上传的文件
-     */
-    public boolean uploadFile(Map<String, String> params, String fileFormName, File uploadFile, String newFileName, String url){
+    public void uploadFile(final int downloadWay, final Map<String, String> params, final String fileFormName, final File uploadFile, final String newFileName, final String url, final OnUploadResultListener uploadResultListener){
+        if(!uploadFile.exists()){
+            System.out.println("文件不存在！");
+            return;
+        }
+
+        if(downloadWay == DOWNLOAD_WITH_HTTPURLCONNECTION){
+            //HttpURLConnection, need run with thread because of network can't use in uiThread.
+            Log.d(TAG, "uploadFile by HttpURLConnection");
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    uploadFileWithHttpURLConnection(params, fileFormName, uploadFile, newFileName, url, uploadResultListener);
+                }
+            }).start();
+
+        } else if(downloadWay == DOWNLOAD_WITH_OKHTTP){
+            //Okhttp
+            Log.d(TAG, "uploadFile by okHttp");
+            uploadFileWithOkHttp(params, fileFormName, uploadFile, newFileName, url, uploadResultListener);
+        }
+    }
+
+
+        /**
+         *
+         ------WebKitFormBoundary90QkFBcF68eTRSiS       1
+         Content-Disposition: form-data; name="data"     2
+                                                        3
+         fafa                                           4
+         ------WebKitFormBoundary90QkFBcF68eTRSiS       5
+         Content-Disposition: form-data; name="username"  6
+                                                        7
+         fafa                                           8
+         ------WebKitFormBoundary90QkFBcF68eTRSiS       9
+         Content-Disposition: form-data; name="file"; filename=""       10
+         Content-Type: application/octet-stream             11
+                                                            12
+                                                            13
+         ------WebKitFormBoundary90QkFBcF68eTRSiS--          14
+         * @param params 普通表单数据
+         * @param fileFormName 表单文件名称
+         * @param newFileName  文件名称，如果不设置，默认使用fileFormName
+         * @param url  请求上传的URL地址
+         * @param uploadFile 上传的文件
+         */
+    private void uploadFileWithHttpURLConnection(Map<String, String> params, String fileFormName, File uploadFile, String newFileName, String url, OnUploadResultListener uploadResultListener){
 
         try {
 
@@ -112,8 +152,14 @@ public class FileUploadUtil {
             //接着是写文件内容
             byte[] buf = new byte[1024];
             int len;
+            int sum = 0;
+            long totalLength = uploadFile.length();
+            Log.d(TAG, "uploadFileWithHttpURLConnection: totalLength = " + totalLength);
             while((len = in.read(buf)) != -1){
                 out.write(buf, 0, len);
+                sum += len;
+                int process = (int)(sum *1.0f/totalLength*100);
+                uploadResultListener.uploadProcess(process);
             }
 
             //最后是结尾
@@ -123,13 +169,43 @@ public class FileUploadUtil {
 
             if(conn.getResponseCode() == 200){
                 System.out.println("上传成功");
-                return true;
+                uploadResultListener.uploadSuccess();
             }
-            return false;
         } catch (IOException e) {
+            System.out.println("上传失败");
+            uploadResultListener.uploadFailed();
             e.printStackTrace();
         }
-        return false;
+    }
+
+
+    private void uploadFileWithOkHttp(Map<String, String> params, String fileFormName, final File uploadFile, String newFileName, String url, final OnUploadResultListener uploadResultListener){
+        OkHttpClient mOkHttpClient = new OkHttpClient();
+        RequestBody mRequestBody = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("username", "gaozhan")
+                .addFormDataPart(fileFormName, newFileName, RequestBody.create(MediaType.parse("application/octet-stream"), uploadFile))
+                .build();
+        Request request = new Request.Builder()
+                .url(url)
+                .post(mRequestBody)
+                .build();
+        Call call = mOkHttpClient.newCall(request);
+
+        call.enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                uploadResultListener.uploadFailed();
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                Log.d(TAG, "onResponse: " + response.toString());
+                if(response.code() == 200){
+                    uploadResultListener.uploadSuccess();
+                }
+            }
+        });
     }
 
 }
