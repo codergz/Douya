@@ -4,6 +4,7 @@ package com.example.gz494.douya.listener;
  * Created by gz494 on 2018/3/26.
  */
 
+
 public interface OnDownloadListener {
     /*下载成功*/
     void onDownloadSuccess();
